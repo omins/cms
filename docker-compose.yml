@@ -1,0 +1,8 @@
+services:
+  web:
+    image: ghcr.io/omins/cms:latest # all lowercase
+    env_file:
+      - /opt/envs/cms.env
+    ports:
+      - '127.0.0.1:1337:1337'
+    restart: always
