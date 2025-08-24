@@ -1,0 +1,60 @@
+name: CI/CD via GHCR
+on:
+  push:
+    branches: ['main']
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE_LATEST: ghcr.io/${{ github.repository }}:latest
+      IMAGE_SHA: ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build & push image to GHCR
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_LATEST }}
+            ${{ env.IMAGE_SHA }}
+
+      - name: Sync docker-compose.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: docker-compose.yml
+          target: ${{ secrets.SERVER_APP_DIR }}
+
+      # Deploy on server: docker login, pull, restart
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            cd "${{ secrets.SERVER_APP_DIR }}"
+            # first-time compose file presence
+            docker compose up -d --pull always
+            docker image prune -f || true
